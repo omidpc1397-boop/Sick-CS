@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena Zero</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap">
+<style>
+  :root {
+    --bg: #0e1311;
+    --panel: #151c19;
+    --fg: #e6ede9;
+    --muted: #8c9a93;
+    --line: #27322d;
+    --accent: #f2a33a;
+    --accent-fg: #1a1205;
+    --font: "Vazirmatn", Tahoma, "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    padding: 20px 16px;
+  }
+  main {
+    width: 100%;
+    max-width: 960px;
+    margin-inline: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 800; }
+  header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  .wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 20px;
+    text-align: center;
+    background: rgba(8, 12, 10, 0.8);
+    cursor: pointer;
+  }
+  .overlay[hidden] { display: none; }
+  .overlay h2 { margin: 0; font-size: clamp(1.4rem, 5vw, 2.2rem); font-weight: 800; }
+  .overlay p { margin: 0; color: var(--muted); max-width: 46ch; line-height: 1.8; font-size: 0.95rem; }
+  .go {
+    font: inherit;
+    font-weight: 600;
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 10px;
+    padding: 12px 32px;
+    cursor: pointer;
+  }
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .legend li {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-width: 0;
+  }
+  .legend b { display: block; color: var(--fg); font-weight: 600; margin-bottom: 2px; direction: ltr; text-align: right; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Arena Zero</h1>
+    <p>تیرانداز اول‌شخص؛ مخصوص کامپیوتر و موس</p>
+  </header>
+
+  <div class="wrap" id="wrap">
+    <canvas id="cv" width="640" height="360"></canvas>
+    <div class="overlay" id="overlay" role="button" tabindex="0">
+      <h2 id="ovTitle">آرنا زیرو</h2>
+      <p id="ovBody">پیش از تمام شدن زمان، همه‌ی دشمن‌های زمین را از بین ببر. هر راند دشمن بیشتری دارد.</p>
+      <button class="go" id="ovBtn" type="button">شروع بازی</button>
+    </div>
+  </div>
+
+  <ul class="legend">
+    <li><b>W A S D</b>حرکت</li>
+    <li><b>Mouse / ← →</b>چرخش و نشانه‌گیری</li>
+    <li><b>Click / Space</b>شلیک (نگه دارید)</li>
+    <li><b>R</b>پر کردن خشاب</li>
+    <li><b>Esc / P</b>توقف</li>
+  </ul>
+</main>
+
+<script>
+(function () {
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var W = cv.width, H = cv.height;
+  var overlay = document.getElementById("overlay");
+  var ovTitle = document.getElementById("ovTitle");
+  var ovBody = document.getElementById("ovBody");
+  var ovBtn = document.getElementById("ovBtn");
+  var faNum = new Intl.NumberFormat("fa-IR");
+
+  // ---------- Map ----------
+  var N = 20;
+  var map = [];
+  for (var y = 0; y < N; y++) {
+    map.push([]);
+    for (var x = 0; x < N; x++) map[y].push(x === 0 || y === 0 || x === N - 1 || y === N - 1 ? 1 : 0);
+  }
+  [
+    [2,2,3,1,2],[2,3,1,1,2],[14,2,3,1,3],[14,3,1,1,3],[6,5,3,1,1],[6,6,1,2,1],
+    [12,6,2,1,1],[12,7,1,1,1],[16,8,3,1,3],[8,9,2,1,2],[8,10,1,1,2],[4,11,1,2,3],
+    [12,11,3,1,1],[8,13,2,1,1],[14,14,2,1,3],[2,15,2,1,2],[2,16,1,1,2],
+    [11,16,2,1,2],[11,17,1,1,2]
+  ].forEach(function (b) {
+    for (var yy = b[1]; yy < b[1] + b[3]; yy++)
+      for (var xx = b[0]; xx < b[0] + b[2]; xx++) map[yy][xx] = b[4];
+  });
+  var WALL_COL = { 1: [128, 138, 146], 2: [158, 114, 70], 3: [88, 124, 156] };
+  var SPAWNS = [[17.5,2.5],[16.5,12.5],[10.5,4.5],[17.5,17.5],[6.5,17.5],[10.5,12.5],[17.5,5.5],[4.5,8.5]];
+
+  function wallAt(x, y) {
+    var mx = Math.floor(x), my = Math.floor(y);
+    if (mx < 0 || my < 0 || mx >= N || my >= N) return 1;
+    return map[my][mx];
+  }
+  function blocked(x, y, r) {
+    return wallAt(x - r, y - r) || wallAt(x + r, y - r) || wallAt(x - r, y + r) || wallAt(x + r, y + r);
+  }
+  function tryMove(o, dx, dy, r) {
+    if (!blocked(o.x + dx, o.y, r)) o.x += dx;
+    if (!blocked(o.x, o.y + dy, r)) o.y += dy;
+  }
+  function los(x0, y0, x1, y1) {
+    var d = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(d / 0.1);
+    for (var i = 1; i < n; i++) {
+      var t = i / n;
+      if (wallAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return false;
+    }
+    return true;
+  }
+  function normAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+
+  // ---------- State ----------
+  var state = "menu"; // menu | playing | paused | over
+  var round = 1, kills = 0, deaths = 0, won = false;
+  var P = { x: 2.5, y: 9.5, a: 0, hp: 100, mag: 30, res: 90, reload: 0, fireT: 0, recoil: 0, flashT: 0, hurt: 0, moving: false, bob: 0 };
+  var enemies = [];
+  var timeLeft = 100;
+  var keys = {};
+  var mouseDown = false, usingLock = false;
+
+  function pickOpenCell() {
+    for (var i = 0; i < 200; i++) {
+      var cx = 1 + Math.floor(Math.random() * (N - 2)), cy = 1 + Math.floor(Math.random() * (N - 2));
+      if (!map[cy][cx]) return [cx + 0.5, cy + 0.5];
+    }
+    return [2.5, 2.5];
+  }
+
+  function startRound() {
+    P.x = 2.5; P.y = 9.5; P.a = 0; P.hp = 100; P.mag = 30; P.res = 90;
+    P.reload = 0; P.fireT = 0; P.recoil = 0; P.flashT = 0; P.hurt = 0;
+    timeLeft = 100;
+    enemies = [];
+    var count = Math.min(3 + round, SPAWNS.length);
+    var pool = SPAWNS.slice();
+    for (var i = 0; i < count; i++) {
+      var s = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      var w = pickOpenCell();
+      enemies.push({ x: s[0], y: s[1], a: Math.random() * 6.28, hp: 100, alive: true, seen: 0, fire: 0.6,
+        alert: 0, wx: w[0], wy: w[1], stuck: 0, flash: 0, shootFlash: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: 1 });
+    }
+  }
+
+  // ---------- Audio ----------
+  var actx = null;
+  function initAudio() {
+    try {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === "suspended") actx.resume();
+    } catch (e) {}
+  }
+  function noise(dur, vol, freq) {
+    if (!actx) return;
+    try {
+      var len = Math.floor(actx.sampleRate * dur);
+      var buf = actx.createBuffer(1, len, actx.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      var src = actx.createBufferSource(); src.buffer = buf;
+      var f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = freq;
+      var g = actx.createGain(); g.gain.value = vol;
+      src.connect(f); f.connect(g); g.connect(actx.destination); src.start();
+    } catch (e) {}
+  }
+
+  // ---------- Player actions ----------
+  function startReload() {
+    if (P.reload > 0 || P.mag >= 30 || P.res <= 0) return;
+    P.reload = 1.7;
+  }
+  function shoot() {
+    P.mag--; P.fireT = 0.1; P.recoil = 1; P.flashT = 0.05;
+    noise(0.12, 0.25, 2500);
+    var sa = P.a + (Math.random() - 0.5) * (P.moving ? 0.05 : 0.012);
+    var best = null, bestD = 99;
+    enemies.forEach(function (e) {
+      if (!e.alive) return;
+      var dx = e.x - P.x, dy = e.y - P.y, d = Math.hypot(dx, dy);
+      var diff = normAngle(Math.atan2(dy, dx) - sa);
+      if (Math.abs(diff) < Math.atan2(0.28, d) && d < bestD && los(P.x, P.y, e.x, e.y)) { best = e; bestD = d; }
+    });
+    enemies.forEach(function (e) { if (e.alive) e.alert = Math.max(e.alert, 4); });
+    if (best) {
+      best.hp -= 30; best.flash = 0.12;
+      if (best.hp <= 0) { best.alive = false; kills++; }
+    }
+    if (P.mag <= 0) startReload();
+  }
+
+  // ---------- Update ----------
+  function moveToward(e, tx, ty, speed, dt) {
+    var ang = Math.atan2(ty - e.y, tx - e.x);
+    e.a = ang;
+    var ox = e.x, oy = e.y;
+    tryMove(e, Math.cos(ang) * speed * dt, Math.sin(ang) * speed * dt, 0.25);
+    return Math.hypot(e.x - ox, e.y - oy);
+  }
+
+  function updateEnemy(e, dt) {
+    e.flash = Math.max(0, e.flash - dt);
+    e.shootFlash = Math.max(0, e.shootFlash - dt);
+    var dx = P.x - e.x, dy = P.y - e.y, d = Math.hypot(dx, dy);
+    var see = d < 14 && los(e.x, e.y, P.x, P.y);
+    if (see) { e.seen += dt; e.alert = 4; } else { e.seen = 0; e.alert -= dt; }
+
+    if (see) {
+      e.a = Math.atan2(dy, dx);
+      if (e.seen > 0.45) {
+        e.fire -= dt;
+        if (e.fire <= 0) {
+          e.fire = 0.55 + Math.random() * 0.5;
+          e.shootFlash = 0.1;
+          noise(0.1, Math.max(0.03, 0.14 - d * 0.01), 1200);
+          var chance = Math.max(0.12, 0.5 - d * 0.03) * (P.moving ? 0.7 : 1);
+          if (Math.random() < chance) {
+            P.hp -= 8; P.hurt = 0.35;
+            noise(0.15, 0.3, 400);
+          }
+        }
+      }
+      e.strafeT -= dt;
+      if (e.strafeT <= 0) { e.strafe *= -1; e.strafeT = 0.8 + Math.random() * 1.2; }
+      if (d > 5) {
+        tryMove(e, Math.cos(e.a) * 1.5 * dt, Math.sin(e.a) * 1.5 * dt, 0.25);
+      } else if (d > 1.2) {
+        var pa = e.a + Math.PI / 2 * e.strafe;
+        tryMove(e, Math.cos(pa) * 1.2 * dt, Math.sin(pa) * 1.2 * dt, 0.25);
+      }
+    } else if (e.alert > 0) {
+      var moved = moveToward(e, P.x, P.y, 1.7, dt);
+      if (moved < 0.2 * 1.7 * dt) {
+        e.stuck += dt;
+        if (e.stuck > 0.5) { e.alert = 0; e.stuck = 0; var w = pickOpenCell(); e.wx = w[0]; e.wy = w[1]; }
+      } else e.stuck = 0;
+    } else {
+      if (Math.hypot(e.wx - e.x, e.wy - e.y) < 0.4) { var w2 = pickOpenCell(); e.wx = w2[0]; e.wy = w2[1]; }
+      var m = moveToward(e, e.wx, e.wy, 1.2, dt);
+      if (m < 0.2 * 1.2 * dt) {
+        e.stuck += dt;
+        if (e.stuck > 0.4) { e.stuck = 0; var w3 = pickOpenCell(); e.wx = w3[0]; e.wy = w3[1]; }
+      } else e.stuck = 0;
+    }
+  }
+
+  function update(dt) {
+    if (state === "menu") { P.a += 0.25 * dt; return; }
+    if (state !== "playing") return;
+
+    if (keys.ArrowLeft) P.a -= 2.4 * dt;
+    if (keys.ArrowRight) P.a += 2.4 * dt;
+    var fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+    var str = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    P.moving = fwd !== 0 || str !== 0;
+    if (P.moving) {
+      var len = Math.hypot(fwd, str), sp = 3.2 * dt / len;
+      var dx = (Math.cos(P.a) * fwd - Math.sin(P.a) * str) * sp;
+      var dy = (Math.sin(P.a) * fwd + Math.cos(P.a) * str) * sp;
+      tryMove(P, dx, dy, 0.22);
+      P.bob += dt * 9;
+    }
+
+    P.fireT -= dt;
+    P.recoil = Math.max(0, P.recoil - dt * 8);
+    P.flashT = Math.max(0, P.flashT - dt);
+    P.hurt = Math.max(0, P.hurt - dt);
+    if (P.reload > 0) {
+      P.reload -= dt;
+      if (P.reload <= 0) {
+        var take = Math.min(30 - P.mag, P.res);
+        P.mag += take; P.res -= take; P.reload = 0;
+      }
+    }
+    if ((mouseDown || keys.Space) && P.fireT <= 0 && P.reload <= 0) {
+      if (P.mag > 0) shoot();
+      else { P.fireT = 0.25; noise(0.02, 0.1, 6000); startReload(); }
+    }
+
+    enemies.forEach(function (e) { if (e.alive) updateEnemy(e, dt); });
+    timeLeft -= dt;
+
+    var alive = enemies.filter(function (e) { return e.alive; }).length;
+    if (alive === 0) finish(true, "راند را بردی", "همه‌ی دشمن‌ها از بین رفتند. راند بعد دشمن بیشتری دارد.", "راند بعد");
+    else if (P.hp <= 0) { deaths++; P.hp = 0; finish(false, "کشته شدی", "دشمن‌ها تو را زدند. دوباره امتحان کن.", "تلاش دوباره"); }
+    else if (timeLeft <= 0) { deaths++; finish(false, "زمان تمام شد", "قبل از پایان زمان همه‌ی دشمن‌ها را نزدی.", "تلاش دوباره"); }
+  }
+
+  function finish(win, title, body, btn) {
+    won = win; state = "over";
+    exitLock();
+    showOverlay(title, body + " (کشته‌ها: " + faNum.format(kills) + " · مرگ‌ها: " + faNum.format(deaths) + ")", btn);
+  }
+
+  // ---------- Render ----------
+  var zBuf = new Array(W);
+  var skyG = ctx.createLinearGradient(0, 0, 0, H / 2);
+  skyG.addColorStop(0, "#1b2733"); skyG.addColorStop(1, "#33485a");
+  var floorG = ctx.createLinearGradient(0, H / 2, 0, H);
+  floorG.addColorStop(0, "#2a2a28"); floorG.addColorStop(1, "#4a4a44");
+
+  function render() {
+    ctx.fillStyle = skyG; ctx.fillRect(0, 0, W, H / 2);
+    ctx.fillStyle = floorG; ctx.fillRect(0, H / 2, W, H / 2);
+
+    var dirX = Math.cos(P.a), dirY = Math.sin(P.a), plX = -dirY * 0.66, plY = dirX * 0.66;
+    var bobY = P.moving ? Math.sin(P.bob) * 2 : 0;
+
+    for (var i = 0; i < W; i++) {
+      var camX = 2 * i / W - 1;
+      var rdx = dirX + plX * camX, rdy = dirY + plY * camX;
+      var mx = Math.floor(P.x), my = Math.floor(P.y);
+      var ddx = Math.abs(1 / (rdx || 1e-9)), ddy = Math.abs(1 / (rdy || 1e-9));
+      var stepX, stepY, sdx, sdy;
+      if (rdx < 0) { stepX = -1; sdx = (P.x - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - P.x) * ddx; }
+      if (rdy < 0) { stepY = -1; sdy = (P.y - my) * ddy; } else { stepY = 1; sdy = (my + 1 - P.y) * ddy; }
+      var side = 0, hit = 0, guard = 0;
+      while (!hit && guard++ < 64) {
+        if (sdx < sdy) { sdx += ddx; mx += stepX; side = 0; } else { sdy += ddy; my += stepY; side = 1; }
+        if (mx < 0 || my < 0 || mx >= N || my >= N) { hit = 1; break; }
+        hit = map[my][mx];
+      }
+      var perp = side === 0 ? sdx - ddx : sdy - ddy;
+      if (perp < 0.05) perp = 0.05;
+      zBuf[i] = perp;
+      var wallX = side === 0 ? P.y + perp * rdy : P.x + perp * rdx;
+      wallX -= Math.floor(wallX);
+
+      var lineH = H / perp;
+      var top = H / 2 - lineH / 2 + bobY;
+      var shade = Math.max(0.12, Math.min(1, 1.15 - perp / 13)) * (side ? 0.75 : 1);
+      if (wallX < 0.04 || wallX > 0.96) shade *= 0.7;
+      var c = WALL_COL[hit] || WALL_COL[1];
+      ctx.fillStyle = "rgb(" + (c[0] * shade | 0) + "," + (c[1] * shade | 0) + "," + (c[2] * shade | 0) + ")";
+      ctx.fillRect(i, top, 1, lineH);
+    }
+
+    // sprites
+    var invDet = 1 / (plX * dirY - dirX * plY);
+    var list = enemies.filter(function (e) { return e.alive; }).map(function (e) {
+      var sx = e.x - P.x, sy = e.y - P.y;
+      return { e: e, tx: invDet * (dirY * sx - dirX * sy), ty: invDet * (-plY * sx + plX * sy) };
+    }).filter(function (s) { return s.ty > 0.2; }).sort(function (a, b) { return b.ty - a.ty; });
+
+    list.forEach(function (s) {
+      var e = s.e;
+      var screenX = (W / 2) * (1 + s.tx / s.ty);
+      var full = H / s.ty;
+      var sh = full * 0.9, sw = sh * 0.5;
+      var bottom = H / 2 + full / 2 + bobY, topY = bottom - sh;
+      var x0 = Math.floor(screenX - sw / 2), x1 = Math.floor(screenX + sw / 2);
+      var fog = Math.max(0.25, Math.min(1, 1.2 - s.ty / 14));
+      function col(r, g, b) {
+        if (e.flash > 0) return "rgb(255,255,255)";
+        return "rgb(" + (r * fog | 0) + "," + (g * fog | 0) + "," + (b * fog | 0) + ")";
+      }
+      for (var x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
+        if (s.ty >= zBuf[x]) continue;
+        var u = (x - x0) / (x1 - x0 || 1);
+        if (u > 0.38 && u < 0.62) { ctx.fillStyle = col(222, 182, 150); ctx.fillRect(x, topY, 1, sh * 0.2); }
+        if (u > 0.25 && u < 0.75) { ctx.fillStyle = col(176, 58, 48); ctx.fillRect(x, topY + sh * 0.2, 1, sh * 0.4); }
+        if ((u > 0.13 && u <= 0.25) || (u >= 0.75 && u < 0.87)) { ctx.fillStyle = col(150, 48, 40); ctx.fillRect(x, topY + sh * 0.22, 1, sh * 0.34); }
+        if ((u > 0.3 && u < 0.48) || (u > 0.52 && u < 0.7)) { ctx.fillStyle = col(52, 56, 66); ctx.fillRect(x, topY + sh * 0.6, 1, sh * 0.4); }
+      }
+      if (e.shootFlash > 0) {
+        var fx = screenX + sw * 0.2, fy = topY + sh * 0.42;
+        if (s.ty < zBuf[Math.max(0, Math.min(W - 1, Math.floor(fx)))]) {
+          ctx.fillStyle = "rgba(255,220,120,0.95)";
+          ctx.fillRect(fx - sh * 0.04, fy - sh * 0.04, sh * 0.08, sh * 0.08);
+        }
+      }
+    });
+
+    drawGun();
+    if (P.flashT > 0) { ctx.fillStyle = "rgba(255,230,150,0.12)"; ctx.fillRect(0, 0, W, H); }
+    if (P.hurt > 0) { ctx.fillStyle = "rgba(210,20,20," + Math.min(0.5, P.hurt * 1.4) + ")"; ctx.fillRect(0, 0, W, H); }
+    if (state === "playing" || state === "paused" || state === "over") drawHud();
+  }
+
+  function drawGun() {
+    var bx = Math.sin(P.bob * 0.5) * (P.moving ? 4 : 0);
+    var by = (P.moving ? Math.abs(Math.cos(P.bob * 0.5)) * 3 : 0) + P.recoil * 9 + (P.reload > 0 ? 26 : 0);
+    var cx = W / 2 + 70 + bx, bt = H - 92 + by;
+    ctx.fillStyle = "#1c1f22"; ctx.fillRect(cx - 14, bt + 30, 28, 70);
+    ctx.fillStyle = "#2c3136"; ctx.fillRect(cx - 9, bt, 18, 60);
+    ctx.fillStyle = "#14171a"; ctx.fillRect(cx - 4, bt - 22, 8, 26);
+    ctx.fillStyle = "#3a4047"; ctx.fillRect(cx - 9, bt + 6, 3, 40);
+    if (P.flashT > 0) {
+      ctx.fillStyle = "rgba(255,220,110,0.95)";
+      ctx.beginPath(); ctx.moveTo(cx - 12, bt - 22); ctx.lineTo(cx, bt - 52); ctx.lineTo(cx + 12, bt - 22); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  function drawHud() {
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5;
+    var g = P.moving ? 7 : 4, cx = W / 2, cy = H / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - g - 6, cy); ctx.lineTo(cx - g, cy);
+    ctx.moveTo(cx + g, cy); ctx.lineTo(cx + g + 6, cy);
+    ctx.moveTo(cx, cy - g - 6); ctx.lineTo(cx, cy - g);
+    ctx.moveTo(cx, cy + g); ctx.lineTo(cx, cy + g + 6);
+    ctx.stroke();
+
+    ctx.font = "600 14px system-ui, sans-serif"; ctx.textBaseline = "alphabetic";
+
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(10, H - 34, 150, 24);
+    var hpc = P.hp > 60 ? "#4cc27a" : P.hp > 30 ? "#e2b43a" : "#e05545";
+    ctx.fillStyle = hpc; ctx.fillRect(12, H - 32, 146 * Math.max(0, P.hp) / 100, 20);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "left";
+    ctx.fillText("HP " + Math.max(0, Math.ceil(P.hp)), 18, H - 17);
+
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(W - 120, H - 34, 110, 24);
+    ctx.fillStyle = P.mag <= 5 ? "#e05545" : "#fff"; ctx.textAlign = "right";
+    ctx.fillText(P.mag + " / " + P.res, W - 18, H - 17);
+    if (P.reload > 0) { ctx.textAlign = "center"; ctx.fillStyle = "#f2a33a"; ctx.fillText("RELOADING", W / 2, H - 20); }
+
+    var alive = enemies.filter(function (e) { return e.alive; }).length;
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(10, 10, 190, 24);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "left";
+    ctx.fillText("ROUND " + round + "  ·  LEFT " + alive + "  ·  K " + kills + " D " + deaths, 16, 27);
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(W / 2 - 34, 10, 68, 24);
+    ctx.fillStyle = timeLeft < 15 ? "#e05545" : "#fff"; ctx.textAlign = "center";
+    ctx.fillText(Math.max(0, Math.ceil(timeLeft)) + " s", W / 2, 27);
+
+    var cs = 4, mx0 = W - N * cs - 10, my0 = 10;
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(mx0 - 2, my0 - 2, N * cs + 4, N * cs + 4);
+    for (var y = 0; y < N; y++) for (var x = 0; x < N; x++) {
+      if (map[y][x]) { ctx.fillStyle = "rgba(190,200,205,0.7)"; ctx.fillRect(mx0 + x * cs, my0 + y * cs, cs, cs); }
+    }
+    ctx.fillStyle = "#f2a33a"; ctx.beginPath(); ctx.arc(mx0 + P.x * cs, my0 + P.y * cs, 2, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = "#f2a33a"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(mx0 + P.x * cs, my0 + P.y * cs);
+    ctx.lineTo(mx0 + (P.x + Math.cos(P.a) * 1.6) * cs, my0 + (P.y + Math.sin(P.a) * 1.6) * cs); ctx.stroke();
+  }
+
+  // ---------- Overlay / flow ----------
+  function showOverlay(title, body, btn) {
+    ovTitle.textContent = title; ovBody.textContent = body; ovBtn.textContent = btn;
+    overlay.hidden = false;
+  }
+  function lock() {
+    try { var r = cv.requestPointerLock(); if (r && r.catch) r.catch(function () {}); } catch (e) {}
+  }
+  function exitLock() {
+    try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {}
+  }
+  function pause() {
+    if (state !== "playing") return;
+    state = "paused"; mouseDown = false; keys = {};
+    exitLock();
+    showOverlay("توقف", "برای ادامه کلیک کن.", "ادامه");
+  }
+  function overlayAction() {
+    initAudio();
+    if (state === "menu") { startRound(); }
+    else if (state === "over") { if (won) round++; startRound(); }
+    state = "playing";
+    overlay.hidden = true;
+    lock();
+  }
+
+  overlay.addEventListener("click", overlayAction);
+  document.addEventListener("pointerlockchange", function () {
+    if (document.pointerLockElement === cv) usingLock = true;
+    else if (usingLock) { usingLock = false; if (state === "playing") pause(); }
+  });
+  window.addEventListener("blur", pause);
+
+  cv.addEventListener("mousedown", function (e) {
+    if (e.button === 0 && state === "playing") { mouseDown = true; e.preventDefault(); }
+  });
+  window.addEventListener("mouseup", function () { mouseDown = false; });
+  cv.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  document.addEventListener("mousemove", function (e) {
+    if (state !== "playing") return;
+    if (document.pointerLockElement === cv || (mouseDown && e.target === cv)) P.a += e.movementX * 0.0025;
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var k = e.code;
+    if (state === "playing") {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].indexOf(k) >= 0) e.preventDefault();
+      keys[k] = true;
+      if (k === "KeyR") startReload();
+      if (k === "KeyP" || k === "Escape") pause();
+    } else if (k === "Enter" || k === "Space") {
+      if (!overlay.hidden) { e.preventDefault(); overlayAction(); }
+    } else if (k === "KeyP" && state === "paused") overlayAction();
+  });
+  document.addEventListener("keyup", function (e) { keys[e.code] = false; });
+
+  // ---------- Loop ----------
+  var last = performance.now();
+  function loop(now) {
+    var dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+  startRound();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
